@@ -14,10 +14,34 @@
 ## Part 2 — Lecture Questions
 Answer in your own words (2–4 sentences each).
 1. Define the CIA triad and give one concrete failure example for each of the three properties.
+    The basic framework of information security consists of three main characteristics: confidentiality, integrity, and availability.
 2. What is a *trust boundary*, and why does data crossing one deserve extra scrutiny?
+    A conceptual boundary that separates systems with different levels of security or reliability. When data crosses this boundary, it moves from one area to another with varying levels of control, thus requiring special verification.
 3. Explain "attack surface." Name two things that increase it in a web app.
+    1.Opening too many APIs: Having unused or unsecured API endpoints provides hackers with easy opportunities for exploitation and system breaches.
+    2.Using third-party libraries: Installing outdated or unupdated code, plugins, or libraries unknowingly introduces new vulnerabilities to web applications.
 4. What does each STRIDE letter map to, and which security property does each threat violate?
+    S - Spoofing
+    Threat: Pretending to be someone or something else (like using a stolen password).
+    Violated Property: Authentication (verifying identity).
+    T - Tampering
+    Threat: Modifying data, files, or code without authorization.
+    Violated Property: Integrity (ensuring data is accurate and unchanged).
+    R - Repudiation
+    Threat: Denying that you performed an action or transaction, while the system cannot prove otherwise.
+    Violated Property: Non-repudiation (proof that an action happened).
+    I - Information Disclosure
+    Threat: Exposing private or sensitive data to people who should not see it.
+    Violated Property: Confidentiality (keeping data secret).
+    D - Denial of Service
+    Threat: Crashing a system or overwhelming it so real users cannot access it.
+    Violated Property: Availability (ensuring systems work when needed).
+    E - Elevation of Privilege
+    Threat: Gaining admin rights or higher access levels than you should have.
+    Violated Property: Authorization (controlling permissions and access levels).
 5. What does "Secure by Design" (CISA) mean, and how does it differ from bolting security on after release?
+    building security into a product's architecture from the very beginning so that protection is a core foundation rather than a late addition.
+    Built-in security uses fundamental layers like memory-safe languages and strict data access controls. Bolted-on security tries to wrap an insecure core with external shields.
 
 ## Part 3 — Hands-on Lab (180 min)
 **Learning goals:** build a data-flow diagram (DFD), apply STRIDE to a real Flask app, rank risks, and propose mitigations.
