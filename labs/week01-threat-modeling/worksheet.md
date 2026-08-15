@@ -75,6 +75,18 @@ Source to model lives in `sample-app/app.py`. Template to fill: `THREAT-MODEL-TE
 ```sim
 eop-deck
 ```
+Card 1: R — Repudiation (You've invented a new Repudiation attack)Element / Flow: Flask Application (All Endpoints: /notes, /upload, /files/<name>)
+Applies to system? Yes (+1 Point)
+Threat Description: The application currently lacks any form of logging, auditing, or session tracking. An attacker can interact with the system (e.g., uploading a malicious payload or creating a fake note) without leaving an identifiable trace such as an IP address or user ID. This means any action can be completely repudiated (denied) by the attacker, as the system has no proof of who performed it. 
+
+Card 2: S — Spoofing (Your system ships with a default admin password, and doesn't force a change)
+Element / Flow: N/A
+Applies to system? No (0 Points)
+Threat Description: This threat does not map to the current architecture. The sample application does not implement any authentication mechanisms, user roles, or passwords (default or otherwise).
+
+Card 3: S — Spoofing (An attacker could steal credentials stored on the client and reuse them)
+Element / Flow: Web Client
+Applies to system? No (0 Points)Threat Description: This threat does not apply because the application does not issue or store any credentials (such as session cookies, JWTs, or API keys) on the client side. The endpoints simply accept unauthenticated requests directly. 
 
 **Task 3b — Systems-level pass (25 min) 🔭** · *Goal:* find what the per-element grid cannot see. Tasks 2 and 3 enumerate threats **one element at a time**, and that is exactly where threat models are known to stop short — students taught STRIDE alone reliably identify component threats and *discount system-level ones* ([Joshi et al., ASEE 2024](https://arxiv.org/abs/2404.16632)). So do a second pass over the **whole** diagram:
 ![Three trust zones — public internet, application tier, data tier — with the two boundaries a request crosses between them](img/trust-boundaries.svg)
@@ -83,6 +95,11 @@ eop-deck
 - **Assume one element is fully owned.** Pick the Flask process, then the `uploads/` store. For each: what does the attacker now *reach* — not what is it, but where does it get them?
 - **Chain two "low" findings.** Find two threats you or the EoP deck rated minor that combine into something you would not accept. Write the chain as `A → B → consequence`.
 - **One-line system claim.** Finish: "Even if every element-level mitigation in Task 8 is implemented, this system still fails if ___."
+
+1. Trust boundaries end-to-end (List of boundaries and points without checks): The data transmission path (Request) from the client to the database and back, crossing trust boundaries as follows: Crossing Boundary 1: From the Web Client (Public Internet) to the Flask App (Application Tier). Crossing Boundary 2: From the Flask App (Application Tier) to notes.db and uploads/ (Data Tier). Return: From the Data Tier, cross back to the Application Tier and then back to the Public Internet. Which crossing has no check on it? (Points without checks): Boundary 1 (Internet $\to$ App) has no checks because there is no authentication system. This allows anyone on the internet to instantly bypass the API. Furthermore, the second tier (App $\to$ Data) does not filter filenames before writing to Data Tier 
+2. Assume one element is fully owned (Reachability impact when compromised): If a Flask process is compromised: The attacker can reach the entire file system and resources of the server (OS level), read, modify, or delete the notes.db database, and may use this process as a central point to access other systems on the internal network. If uploads/store is compromised: The attacker can control the content the application sends back to other users (Reach clients), allowing them to embed malicious code (e.g., malware or stored XSS) to attack victims accessing the files. 
+3. Chain two "low" findings (Chain risk in one path): Chain: Information Disclosure (the system reflects the path location where files are saved back to /upload) $\to$ Tampering (the attacker uses path traversal techniques with ../ to write files outside the folder) $\to$ Consequence: The attacker uses the leaked path to calculate the location of system files. Then, malicious scripts can be uploaded to overwrite the app.py file or database files, resulting in remote code execution or a permanent system crash (denial of service). 
+4. One-line system claim (summarizing system-level vulnerabilities): "Even if every element-level mitigation in Task 8 is implemented, this system still fails if there is no system-wide identity/authentication layer and no strict isolation between untrusted user uploads and the application's execution environment."
 
 Use the simulation below before you start — toggle a component to attacker-controlled and watch what it reaches:
 
@@ -93,6 +110,26 @@ trust-boundary
 *Deliverable:* the boundary list, two owned-element reachability notes, one written chain, and the system claim.
 
 **Task 4 — Abuse cases & attacker personas (20 min)** · *Goal:* think like specific adversaries. *Steps:* define 2 personas (e.g. a curious logged-in user; an anonymous internet attacker) and write 2 abuse cases each against the sample app, tied to DFD elements. *Deliverable:* 4 abuse cases.
+Persona 1: "The Curious User" 
+Characteristics: A typical application user or student on the same network who doesn't have malicious intent to damage the server, but is mischievous and likes to experiment with different parameters on their browser to see if the system allows them to do things beyond their permissions. 
+Abuse Case 1: Spoofing 
+Goal: To create fake posts in someone else's name (e.g., an admin or friend). 
+DFD Elements Involved: Web Client $\to$ POST /notes $\to$ Flask Application $\to$ notes.db Method (The Attack): The user modifies the payload in the HTTP request sent to POST /notes by changing the 'owner' field to another person's name, as the system lacks authentication. The application then immediately saves the fake information to notes.db. 
+Abuse Case 2: System File Spying (Information Disclosure) 
+Goal: To find out what hidden files are on the server besides the uploaded files. 
+DFD Elements Involved: Web Client $\to$ GET /files/<name> $\to$ Flask Application $\to$ uploads folder 
+Method (The Attack): The user sends a GET request to /files/../../etc/passwd (Path Traversal) to trick the Flask Application into backtracking from the uploads folder, bypassing the boundaries to read the operating system's password file, and then displaying the results on the screen.
+
+Persona 2: "The External Saboteur" (External Attacker/Hacker) 
+Characteristics: A malicious attacker from the public internet aiming to take over a system, destroy sensitive data, or crash applications to the point of rendering them unusable. 
+Abuse Case 3: Database Tampering (Data Destruction) 
+Goal: To destroy a database to render the system unusable or to delete evidence. 
+DFD Elements Involved: Web Client $\to$ POST /upload $\to$ Flask Application $\to$ notes.db 
+Method (The Attack): The hacker exploits an arbitrary-file-write vulnerability by naming the malware file or an empty file... ../../notes.db is then sent via POST /upload. The application overwrites the actual notes.db database in the Data Store with this file, resulting in the loss of all data for everyone. 
+Abuse Case 4: Denial of Service (DoS) 
+Goal: To crash the server and cut off access for legitimate users. 
+DFD Elements Involved: Web Client $\to$ POST /upload $\to$ Flask Application $\to$ uploads folder 
+Method (The Attack): Hackers write an automated script (bot) to repeatedly send requests to POST /upload, continuously uploading very large junk files. Because the application has no file size limits, the storage space in the uploads folder fills up quickly, causing the system to crash and become unable to accept any further commands.
 
 **Task 5 — Path-traversal deep-dive (25 min)** · *Goal:* analyze the riskiest flow. *Steps:* trace `/upload` → `/files/<name>`; explain how `../` in a filename escapes `uploads/`; sketch the secure design (`secure_filename`, store outside web root, allow-list extensions). *Deliverable:* the data flow + secure-design note.
 
