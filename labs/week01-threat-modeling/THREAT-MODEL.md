@@ -7,7 +7,7 @@
 | Element | Type (process/store/entity/flow) | Trust boundary crossed? |
 |---|---|---|
 | Web client | external entity | yes (Internet → app) |
-| Flask app | process |yes (Internet ↔ app และ app ↔ data tier)|
+| Flask app | process |yes (Internet ↔ app and app ↔ data tier)|
 | SQLite DB (`notes.db`) | data store |yes (app → data tier)|
 | `uploads/` store | data store |yes (app → data tier)|
 
