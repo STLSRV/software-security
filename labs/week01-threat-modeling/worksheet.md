@@ -65,10 +65,17 @@ Source to model lives in `sample-app/app.py`. Template to fill: `THREAT-MODEL-TE
 **What to submit per task:** the threat/element identified + a screenshot (DFD, table, or running app) + a 2–3 sentence mitigation.
 
 **Task 0 — Onboarding (5 min)** · *Goal:* prove the environment works. *Steps:* `docker compose up`, hit `/notes` and `/files/<name>`, read `sample-app/app.py`. *Deliverable:* screenshot of the running app + the JSON response.
+![alt text](<Screenshot 2026-08-16 145134.png>)
 
 **Task 1 — Draw the DFD (25 min)** · *Goal:* map the system. *Steps:* identify the external entity (web client), the process (Flask app), the data store (`notes.db` SQLite), the `uploads/` store, and the flows for `/notes`, `/upload`, `/files/<name>`; mark the Internet→app trust boundary with a dashed line. *Deliverable:* DFD image embedded in your copy of the template.
+![alt text](diagram-export-8-15-2026-4_13_06-PM-1.png)
 
 **Task 2 — STRIDE the elements (30 min)** · *Goal:* enumerate threats per element. *Steps:* for each element fill the S/T/R/I/D/E grid. Ground it in real code: `/notes` accepts a client-supplied `owner` with no auth (Spoofing); `/upload` saves raw `f.filename` — arbitrary-file-write (Tampering) — and echoes the resolved save path back in its response (Information disclosure); `/files/<name>` reads it back but is comparatively defended (see Task 5); no logging anywhere (Repudiation). *Deliverable:* completed STRIDE table.
+| Element | S | T | R | I | D | E |
+|---|---|---|---|---|---|---|
+| /notes |Yes (accepts owner input without auth)| |Yes (no logging)| | | |
+| /upload | |Yes (arbitrary-file-write pass f.filename)|Yes (no logging)|Yes (reveals the path in the response)| | |
+| /files/<name> | | |Yes (no logging)|Yes (path-traversal vulnerability with ../)| | |
 
 **Task 3 — Elevation of Privilege game (20 min)** · *Goal:* find threats you missed. *Steps:* play the EoP deck against your DFD; each card you can tie to a real element/flow scores a point; record every valid threat. No printer or scissors? Draw from the digital deck below instead — same 78 cards, same rule. *Deliverable:* list of carded threats + score.
 
@@ -132,6 +139,15 @@ DFD Elements Involved: Web Client $\to$ POST /upload $\to$ Flask Application $\t
 Method (The Attack): Hackers write an automated script (bot) to repeatedly send requests to POST /upload, continuously uploading very large junk files. Because the application has no file size limits, the storage space in the uploads folder fills up quickly, causing the system to crash and become unable to accept any further commands.
 
 **Task 5 — Path-traversal deep-dive (25 min)** · *Goal:* analyze the riskiest flow. *Steps:* trace `/upload` → `/files/<name>`; explain how `../` in a filename escapes `uploads/`; sketch the secure design (`secure_filename`, store outside web root, allow-list extensions). *Deliverable:* the data flow + secure-design note.
+1. The Data Flow: The most dangerous path arises from the interaction of two endpoints as follows: 
+Step 1 (Upload): The web client sends an HTTP POST request to /upload with an attached file named maliciously (e.g., filename="../../../etc/passwd"). The Flask application receives the file and appends its name directly to the server's path, then saves the file to the system (data store). 
+Step 2 (Read): The web client sends an HTTP GET request to /files/../../../etc/passwd. The Flask application searches for the filename from the URL, retrieves the file from the system, and sends it back to the web client. (Information Disclosure) 
+2. How ../ in a filename escapes uploads: In most operating systems, the ../ character (dot-dot-slash) means "go back to a higher level folder" (parent directory).
+When an application takes parameters sent by the user... By accessing a file folder without verification, such as creating a path like /app/uploads/ + ../../etc/passwd, the operating system will reinterpret (resolve) that path, backtracking from the uploads/ and app/ folders until it reaches the root of the server, where it can retrieve the etc/passwd password file. This allows the attacker to successfully escape the sandbox. 
+3. Secure-Design Note: To prevent this vulnerability at the architectural level (Secure by Design), the following measures should be used in combination: 
+Sanitize input with secure_filename(): Never trust the filename submitted by the user. Use functions like secure_filename() instead. Use `werkzeug.utils.secure_filename()` to remove special characters and `../` before using them to create the path, or switch to a new random filename system (e.g., UUID) and store the original filename in the database instead. 
+Store files outside the web root: Move the `uploads/` folder outside the area directly accessible to the web server (outside the public directory) to prevent hackers from running scripts that are secretly uploaded via the URL. 
+Allow-list extensions: Check file extensions using an "allow-list" system, such as accepting only .txt, .jpg, and .png. Avoid using a "block-list" system as it often doesn't cover all dangerous files (e.g., .py, .sh, .php).
 
 **Task 6 — Threat-model the project target (30 min)** · *Goal:* kick off your term project. *Steps:* stop the sample-app first (`docker compose down` — both apps bind host port 8080), then run **NoteVault** (`cd ../../project/starter-app && docker compose up`), draw a quick DFD, and list the top 3 STRIDE threats you'd investigate. *Deliverable:* NoteVault DFD + top-3 threats (reuse these in your project report — `project/REPORT-TEMPLATE.md` in the repo root).
 
@@ -148,8 +164,16 @@ Method (The Attack): Hackers write an automated script (bot) to repeatedly send 
 
 ## Part 4 — Reflection
 1. Map your top finding to a CWE and to OWASP A06 (Insecure Design); explain the mapping in one sentence.
+    Arbitrary File Write/Path Traversal vulnerability is associated with CWE-501 (Trust Boundary Violation) or CWE-22 and is listed under OWASP A06 (Insecure Design).
+    This attack occurs because the application has a design flaw from the outset, allowing untrusted filename data to bypass security boundaries and enter the data tier without any mechanism for data verification or sanitization.
 2. Name one real-world breach caused by a design flaw (not a missing patch) and what design control would have prevented it.
+    Real-world breach: The 2019 data breach at First American Financial (leading to over 885 million sensitive documents) resulted from a design flaw in the Insecure Direct Object Reference (IDOR) category. This flaw allowed anyone to access another person's document simply by changing the ID number in the URL.
+
+    Prevention (Design control): This can be prevented by implementing Mandatory Access Control. The system must always verify that the user making the request has the necessary authorization to access the document with that specific ID before sending the file.
 3. Of your five mitigations, which gives the most risk reduction per unit of effort, and why?
+    The most cost-effective method: Using the secure_filename() function in conjunction with a random filename (e.g., UUID) in the upload system.
+
+    Because it requires very low implementation effort (adding only a few lines of code and calling existing libraries) but provides a very high level of risk reduction. This is because it's a class fix that blocks both path traversal and the uploading of malicious files to overwrite system files simultaneously.
 
 ## Grading rubric (100)
 | Criterion | Points |
@@ -174,11 +198,16 @@ Method (The Attack): Hackers write an automated script (bot) to repeatedly send 
   cropped window carries nothing that identifies you, and the lab's own output is
   byte-identical for the whole cohort *by design*, so the stamp is the only thing that makes
   the shot yours. Generic or borrowed evidence is not accepted.
+  ![alt text](image.png)
+  
 - **Personalized flag (if this lab issues one):** ____________________
   *Flags are unique per student — submitting another student's flag is a violation. How to submit: **learn.zcr.ai/submit** (full guide: `SUBMISSION.md` in the repo root).*
 - **Explain in your own words** *(graded on your reasoning, not copied text):*
   1. What did you do, and **why did the vulnerability work**?
+    What I did: I simulated an attack through the /upload (or /files/) path by appending a filename containing the characters ../ such as ../../../etc/passwd or ../notes.db. Why the vulnerability works: This vulnerability works because the application lacks validation for data that crosses the Trust Boundary. The system code appends the filename (f.filename or <name>) submitted by the user directly to the server path. When the operating system encounters the characters ../, it interprets it as "going back one folder," allowing the file to be saved or read through the defined uploads/ folder boundaries and access system files or databases.
   2. **Why does your fix actually stop it** — and what could still break it?
+    Why the fix works: I fixed it by adding a secure_filename() function (or a new filename) to filter the data before use. This function removes or replaces special characters such as /, \, and .. from all filenames. This ensures that no matter how many ../ files an attacker sends, they will be converted to plain names (e.g., .._.._etc_passwd), confining the files only to the uploads/ folder. This is a definitive class fix for Path Traversal. However, edge cases where the system could still be compromised are: even if the folder cannot be bypassed, if the system doesn't have a file extension allow-list, attackers can still upload malicious script files (e.g., .php, .py, or .html) to the server. Furthermore, without authentication and file size limits, attackers can continue uploading files until the server's storage is full (Denial of Service).
+  
 
 ---
 
@@ -189,6 +218,7 @@ AI is a power tool you must **distrust** — you are graded on your *critique*, 
 1. Ask an AI assistant to exploit **or** fix this week's vulnerability. Paste its full answer.
 2. **Find what's wrong or risky** in it — insecure code, a subtly incomplete fix, a hallucinated API/function/CVE, a missed edge case, or wrong reasoning. Quote the exact line(s).
 3. Produce the **correct, verified** version yourself and explain in 2–3 sentences why the AI's output was insufficient.
+    
 
 > Disclose your AI use in the Part 1 table. This task counts toward your **Defense + Reflection** score.
 
