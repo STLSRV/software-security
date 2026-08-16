@@ -9,15 +9,23 @@
 ## Part 1 — Student Information
 | Name | Student ID | Date | Group |
 |---|---|---|---|
-| | | | |
+|Siravit Thakaew|6631503041|16/08/2026| |
 
 ## Part 2 — Lecture Questions
 Answer in your own words (2–4 sentences each).
 1. Distinguish SAST, DAST, and SCA — what does each see, and when in the SDLC does each run?
+  SAST (Static Application Security Testing): Analyzes the static source code structure to find vulnerabilities. It's typically run during code writing or before code commitment. 
+  DAST (Dynamic Application Security Testing): Does not see the source code but simulates attacks on a running application to observe its response. This tool is used during deployment or the testing phase. 
+  SCA (Software Composition Analysis): Checks external libraries or dependencies used by the project for known vulnerabilities. This is generally run during the code build process.
 2. What is secret scanning, and why do hardcoded secrets keep ending up in repos?
+  Secret scanning is the process of finding confidential information that has slipped into source code, such as API keys, passwords, or tokens (for example, the Gitleaks tool). This is usually done during the commit phase. 
+  The reason confidential information often ends up in the repository is because during development, developers often embed hardcoded credentials directly into the code for quick application execution and testing (e.g., in the app.py file) and frequently forget to remove them or change to environment variables before committing the code.
 3. What does "shift-left / DevSecOps" mean in practice for a CI pipeline?
+  The term "shift-left" refers to moving the security auditing process to the left (beginning) of the software development lifecycle as quickly as possible. In practice for a CI pipeline, this means automating this process, such as configuring SAST, SCA, and Secret scanning to run immediately upon code introduction (e.g., during a pull request) and automatically failing the pipeline if a high-level (critical) vulnerability is detected, preventing problematic code from reaching production.
 4. Why is coverage-guided fuzzing considered the dominant modern bug-finding technique?
+  Coverage-guided fuzzing is a highly effective technique because it doesn't blindly send junk data. Instead, it works by tracking the program's execution path (code coverage). If it finds that a particular input leads to execution of new code blocks, it mutates that input to delve deeper. This method allows the fuzzer to automatically discover complex bugs, such as heap-buffer-overflow issues—types of vulnerabilities that SAST pattern scanning tools often miss.
 5. Define true positive vs. false positive in scanner triage, and why misclassifying both directions is costly.
+  A true positive is when the scanning tool detects a vulnerability that is genuine and functional. A false positive, on the other hand, is when the tool reports a vulnerability but the code is not actually problematic. Incorrect triage comes at a high price. If you incorrectly identify a true positive as false, your system will be left vulnerable and at risk of hacking. Conversely, if you incorrectly identify a false positive, your development team will waste valuable time and resources fixing code that wasn't problematic in the first place.
 
 ![A left to right SDLC pipeline showing SAST at write code, secret scanning at commit, SCA and fuzzing at build, and DAST at deploy, with what each tool cannot see written underneath it.](img/sdlc-gates.svg)
 
@@ -38,8 +46,12 @@ Target under scan: `vulnerable-repo/app.py` (plus `requirements.txt`). It contai
 **Task 0 — Onboarding (5 min)** · *Goal:* confirm tooling. *Steps:* run `bash scan.sh`; confirm both Semgrep and Gitleaks sections produce output. *Deliverable:* screenshot showing both tools ran.
 
 **Task 1 — SAST sweep with Semgrep (25 min)** · *Goal:* find code flaws. *Steps:* read the Semgrep output; locate the SQL injection in `/user` (CWE-89, string-formatted query), the OS command injection in `/ping` (CWE-78, `shell=True`), the weak `md5` password hash (CWE-327), and `debug=True` (CWE-489). *Deliverable:* one screenshot per finding with the file:line.
-
+![alt text](image-1.png)
+![alt text](image-2.png)
+![alt text](image-3.png)
+![alt text](image-4.png)
 **Task 2 — Secret scan with Gitleaks (15 min)** · *Goal:* find leaked credentials. *Steps:* read the Gitleaks output; identify `AWS_SECRET_ACCESS_KEY` and `DB_PASSWORD` (CWE-798). *Deliverable:* screenshot + the rule that fired for each.
+![alt text](image.png)
 
 **Task 3 — Bug Triage Race (30 min)** · *Goal:* triage accurately. *Steps:* build a table with columns *Tool | File:Line | CWE | Severity | TP/FP | Fix idea*; mark at least 3 true positives and 1 likely false positive and justify each. (Score = TP − misclassified.) *Deliverable:* the completed triage table.
 
