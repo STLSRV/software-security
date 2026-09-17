@@ -10,17 +10,22 @@
 
 | Name | Student ID | Date | Group |
 |------|-----------|------|-------|
-|      |           |      |       |
+|Siravit Thakaew|6631503041|13/9/2569|       |
 
 ## Part 2 — Lecture Questions
 
 Answer in 2–4 sentences each.
 
 1. Why does a **parameterized query** (`execute(sql, (params,))`) defeat SQL injection, while string formatting (`"... '%s'" % user`) does not? Reference how the database treats data vs. code.
+- A parameterized query (execute(sql, (params,))) sends the SQL structure and the data through separate channels: the database compiles the query template first, then binds the user's value in as pure data. A ' or -- in the input is then just characters in a string — it is never parsed as syntax. String formatting ("... '%s'" % user) splices the input into the query text before the database parses it, so the user can inject actual SQL code. That is the core of "data vs. code": the problem isn't filtering characters, it's whether the input is treated as data or as commands.
 2. In the `/ping` endpoint, `subprocess.run("ping -c 1 " + host, shell=True)` is vulnerable. Explain how `shell=True` turns user input into **CWE-78**, and how an argument array (`["ping","-c","1",host]`) removes the shell.
+- subprocess.run("ping -c 1 " + host, shell=True, ...) hands the whole string to a shell (/bin/sh -c) to run. The shell interprets metacharacters like ;, |, and $(), so host=127.0.0.1;id becomes two commands — ping, then id (or ;cat /flag.txt to exfiltrate the flag). Switching to subprocess.run(["ping","-c","1",host], shell=False) cuts the shell out: the argv array is passed straight to execve, so host becomes a single argument to ping that nothing will parse for ; or $().
 3. Distinguish **input validation** (allow-list) from **output handling**. Why is validation alone insufficient defense for SQLi?
+- Input validation accepts only values from an approved set (e.g. a hostname must match [A-Za-z0-9_.-]+) and rejects anything unusual at the entry point. Output handling deals with the value at the moment it's sent to a sink — binding it as a SQL parameter, or escaping it when rendering. Validation alone can't stop SQLi because many fields must legitimately accept the characters SQLi uses (the name O'Brien contains '; a search box accepts anything), and allow-lists can be bypassed. The real defense lives at the sink — the parameterized query — with validation as a defense-in-depth extra layer.
 4. The `/upload` route saves any filename to disk (**CWE-434**). What two properties must a directory and a filename have for an upload to become remote code execution, and which does `solution_app.py` remove?
+- An upload becomes remote code execution when (a) the directory it lands in is somewhere that can execute or serve the file (the server runs .py/.sh, or a web server processes it), and (b) the filename/extension is freely attacker-controlled, so they can save a .py/.php containing their own code. vulnerable_app.py saves the raw f.filename with any extension. solution_app.py removes property (b) — it enforces an extension allow-list (ALLOWED_EXT = {.txt,.png,.jpg,.pdf}) and calls secure_filename() to strip dangerous names/path traversal — so an executable file can't be uploaded in the first place.
 5. What is a **UNION-based** SQLi, and why must the injected `SELECT` return the same number of columns as the original query? Relate to `/search?q=' UNION SELECT username,password FROM users--`.
+- UNION-based SQLi appends a UNION SELECT to the original query to pull data from other tables/columns and return it alongside the normal results. SQL requires both sides of a UNION to have the same number of columns (with compatible types), or it errors out and the SELECT fails. In /search, the original query is SELECT id, username ... — two columns — so the payload ' UNION SELECT username,password FROM users-- must select exactly two values (username,password), and the -- comments out the rest of the query. That surfaces every user's password (including admin's flag) in the search results.
 
 ![One untrusted request value in the Week 4 lab fans out to three interpreters — the SQL engine (CWE-89), the OS shell (CWE-78) and the filesystem (CWE-434) — with the specific control that stops it at each sink: a parameterised query, an argument vector without a shell, and an extension allow-list.](img/injection-sinks.svg)
 
