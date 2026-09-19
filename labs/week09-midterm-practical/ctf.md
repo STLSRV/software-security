@@ -3,7 +3,7 @@
 **Course:** Software Security (KOSEN69) · **Covers:** Weeks 1–6
 **Time:** 150 min · **Total:** 100 pts · **Individual** · Sandbox targets only (ethics policy applies).
 
-**Name:** ____________________  **Student ID:** ____________
+**Name:** Siravit Thakaew  **Student ID:** 6631503041
 
 > Each challenge yields a **flag** in the form `FLAG{...}` (or the proof noted). Submit, per challenge: the **flag**, the **payload/command** you used, and a **one-line mitigation**. Partial credit for documented progress without the flag.
 
@@ -32,13 +32,13 @@
 
 | # | Flag / proof | Payload or command | Mitigation (1 line) |
 |---|---|---|---|
-| 1 | | | |
-| 2 | | | |
-| 3 | | | |
-| 4 | | | |
-| 5 | | | |
-| 6 | | | |
-| 7 | | | |
+| 1 |`Welcome admin` (proof of successful admin login)|`/login?user=admin%27--&pw=x`|ใช้ parameterized query แทนการต่อค่า input เข้า SQL โดยตรง|
+| 2 |`FLAG{sqli_demo}`|`host=127.0.0.1;cat /flag.txt`|ใช้ `subprocess` ด้วย `shell=False` และตรวจสอบ host ด้วย allow-list|
+| 3 |![alt text](image.png)|`<script>alert(document.domain)</script>` ผ่าน `POST /comments`|Escape/HTML-encode comment ก่อนแสดงผล และเปิดใช้ template auto-escaping|
+| 4 |`FLAG{idor_demo}`, order `2`, owner `bob`|Login เป็น alice แล้วใช้ `GET /api/orders/2` พร้อม Alice JWT|ตรวจสอบว่า owner ของ order ตรงกับผู้ใช้ใน token ก่อนส่งข้อมูล|
+| 5 | `FLAG{jwt_demo}` และ Alice token ได้ `403` | Unsigned JWT ที่มี `sub=admin` เรียก `GET /api/admin` | ตรวจลายเซ็น JWT ด้วย secret แบบสุ่มที่แข็งแรง ปิด alg:none และกำหนด algorithm ที่อนุญาต |
+| 6 |![alt text](image-1.png)|`hashcat -m 0 hashes.txt rockyou.txt --show`|ใช้ Argon2id หรือ bcrypt พร้อม unique salt แทน unsalted MD5|
+| 7 |![alt text](image-2.png)|`encrypt_ecb(b"A"*16 + b"A"*16)` จาก `vulnerable_crypto.py` | ใช้ AES-GCM หรือโหมด authenticated encryption ที่มี nonce และ authentication tag แทน ECB |
 
 ---
 
