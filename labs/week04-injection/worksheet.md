@@ -54,6 +54,8 @@ docker run --rm -p 3000:3000 bkimminich/juice-shop       # Juice Shop -> http://
 
 **Task 0 — Onboarding (5 min).** Browse to `http://localhost:8080/login?user=alice&pw=alicepw` and confirm `Welcome alice`. Note the seeded users (`alice`, `bob`). Screenshot the working app. *Deliverable: screenshot.*
 
+![alt text](image.png)
+
 **Before you start — see why concatenation is the flaw** 🔬 Type any input and watch which characters the database will parse as *SQL* rather than as a name. The point is not the payload; it is that with concatenation the input becomes syntax, and with a parameterised query it structurally cannot. You will be asked to state that difference in your own words in Task 5.
 
 ```sim
@@ -66,10 +68,23 @@ sqli-parse
 - *Note — browser vs `curl`:* pasted into a **browser**, the space in `x' OR '1'='1'--` is encoded for you; with **`curl`** an unencoded space silently returns a **blank page (no error)**. Use `curl -G "http://localhost:8080/login" --data-urlencode "user=x' OR '1'='1'--" --data-urlencode "pw=x"` — same `-G --data-urlencode` form for Task 2's `q=`.
 - *Deliverable:* both URLs + screenshot of `Welcome alice` + explain why `--` and `OR '1'='1` work.
 
+![alt text](image-1.png)
+
+Reason for success:
+
+The `'` closes the original string in the SQL statement.
+The `--` comments out the rest of the query, including the password.
+This allows the username to be verified without knowing the password.
+Before taking the screenshot, run this in the same terminal:
+
 **Task 2 — Credential dump via UNION SQLi (30 min) 🐉 Hit #2.**
 - *Goal:* exfiltrate every username **and password** from the `users` table.
 - *Steps:* request `/search?q=' UNION SELECT username,password FROM users--`. Confirm `alice:alicepw` and `bob:bobpw` appear.
 - *Deliverable:* payload + screenshot of dumped credentials + note on why column count must match.
+
+![alt text](image-2.png)
+
+The number of columns in the UNION SELECT must match the original query.
 
 **Task 3 — OS command injection (30 min) 🐉 Hit #3.**
 - *Goal:* run an arbitrary command through `/ping`, then read this lab's command-injection flag with it.
@@ -79,10 +94,25 @@ sqli-parse
   ```
 - *Deliverable:* the three payloads + screenshot of the `id`/`whoami` output **and** the `FLAG{...}` from `/flag.txt` + explanation of the `shell=True` flaw (CWE-78).
 
+![alt text](image-3.png)
+
+When `;id` or `;cat /flag.txt` is submitted, the shell parses and executes it as a new command; this constitutes a CWE-78 vulnerability.
+
+For the screenshot, please display the command alongside an identity stamp on the same screen.
+
 **Task 4 — Unrestricted upload (25 min) 🐉 Hit #4.**
 - *Goal:* show the upload accepts a dangerous file type with no checks (CWE-434).
 - *Steps:* `GET /upload` (form), then upload a file named `shell.py`. Confirm `saved to /tmp/uploads/shell.py`. Via the browser form this just works; via `curl` the file field is named **`f`**: `curl -F "f=@shell.py" "http://localhost:8080/upload"`. Discuss: if `UPLOAD_DIR` were web-served or executed, this is the RCE chain (here the dir is **not** served, so document the missing control rather than claiming auto-RCE).
 - *Deliverable:* upload command/screenshot + 2–3 sentences on why extension allow-listing matters.
+
+![alt text](image-4.png)
+
+vulnerable_app.py ใช้ชื่อไฟล์จากผู้ใช้โดยตรง:
+
+dest = os.path.join(UPLOAD_DIR, f.filename)
+f.save(dest)
+
+There is no check for file extensions or filename sanitization (CWE-434). While malicious files could potentially lead to RCE if the directory were served or executed by the web server, the `/tmp/uploads` directory in this lab is not directly served; therefore, the finding should be reported as "ability to upload malicious files" rather than claiming that RCE occurs automatically.
 
 **Task 5 — Defend / fix it (35 min) 🛡️ Warm-up cleared.**
 - *Goal:* prove `solution_app.py` blocks Tasks 1–4.
@@ -93,11 +123,37 @@ sqli-parse
   Re-fire each payload from Tasks 1–4. Expected: `Login failed`, no credential dump, `invalid host` (400) on `127.0.0.1;id`, and `file type not allowed` for `shell.py`.
 - *Deliverable:* screenshots of all four failures + name the fix line for each (parameterized query L52–55 login / L62–66 search, `shell=False`+regex L74–77, `secure_filename`+allow-list L86–93).
 
+![alt text](image-5.png)
+
+Login SQLi: parameterized query ใน solution_app.py
+
+Search SQLi: parameterized LIKE query
+
+Command injection: regex allow-list และ shell=False
+
+Upload: secure_filename() และ ALLOWED_EXT
+
 ## Part 4 — Reflection
 
 1. **CWE/OWASP mapping:** map each of your four exploits to its CWE (89/78/434) and to OWASP 2025 **A05 Injection**.
+
+Exploit 1 (SQL Injection - Auth Bypass): Maps to CWE-89 (Improper Neutralization of Special Elements used in an SQL Command) and OWASP A05:2025 (Injection).
+
+Exploit 2 (SQL Injection - Data Exfiltration): Maps to CWE-89 (Improper Neutralization of Special Elements used in an SQL Command) and OWASP A05:2025 (Injection).
+
+Exploit 3 (OS Command Injection): Maps to CWE-78 (Improper Neutralization of Special Elements used in an OS Command) and OWASP A05:2025 (Injection).
+
+Exploit 4 (Malicious File Upload to Web Shell): Maps to CWE-434 (Unrestricted Upload of File with Dangerous Type) and OWASP A05:2025 (Injection), as the uploaded file ultimately injects executable code into the server's environment.
+
 2. **Real breach:** the **2017 Equifax breach** exposed ~147M people after attackers exploited a known input-handling flaw (Apache Struts CVE-2017-5638). In 3–4 sentences, connect that failure to the lessons in this lab (untrusted input reaching a powerful interpreter; the cost of an unpatched/unvalidated input path).
+
+The 2017 Equifax breach was caused by CVE-2017-5638, a vulnerability in Apache Struts where untrusted HTTP headers (such as the Content-Type header) were evaluated by a powerful expression language interpreter without proper sanitization. This perfectly illustrates the core lesson of this lab: whenever unvalidated user input is allowed to reach an execution engine, it creates a direct path for catastrophic Remote Code Execution (RCE). Ultimately, the exposure of 147 million records highlights the massive business cost of failing to implement strict input validation and neglecting to patch known vulnerable input paths.
+
 3. **Best mitigation:** of parameterized queries, allow-list validation, least privilege, and avoiding `shell=True`, which single control would have prevented the most damage in this lab, and why?
+
+Across all vectors, allow-list validation is the single control that would have prevented the most damage.
+
+While parameterized queries only fix SQL injection and avoiding shell=True only addresses command injection, strict allow-listing acts as a universal barrier at the application's edge. By explicitly defining the exact characters, formats, and file types permitted (and rejecting everything else), allow-listing neutralizes SQLi, stops shell metacharacters from reaching the OS, and prevents executable file extensions from being uploaded, stopping multiple exploit chains before they ever reach a vulnerable interpreter.
 
 ## Grading rubric (100)
 
