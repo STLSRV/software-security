@@ -136,30 +136,101 @@ Targets: `vulnerable_crypto.py` (the misuses), `hashes.txt` (four unsalted MD5s)
 
 **Task 1 — Capture the Hash (30 min)** · *Goal:* recover the passwords. *Steps:* strip the comment lines from `hashes.txt`, then run `hashcat -m 0 hashes.txt rockyou.txt` (or the `john --format=raw-md5` equivalent); recover all four plaintexts. *Deliverable:* screenshot of the cracked results (mask any real-looking value). Note in one line why unsalted MD5 fell so fast (CWE-916/327).
 
+![alt text](image-1.png)
+
 ```sim
 aes-modes
 ```
 
 **Task 2 — ECB structure leak (20 min)** · *Goal:* prove ECB leaks. *Steps:* call `encrypt_ecb(b"A"*16 + b"A"*16)` from `vulnerable_crypto.py` and show the two 16-byte ciphertext blocks are identical; explain how this leaks plaintext structure (CWE-327). *Deliverable:* hex output highlighting the repeated block.
 
+![alt text](image-2.png)
+Identical plaintext blocks result in identical ciphertext blocks, thereby leaking data structure information.
+
 **Task 3 — Predictable token (15 min)** · *Goal:* show the reset token is guessable. *Steps:* call `reset_token()` repeatedly; argue why a 6-digit `random` token (10^6 space, non-CSPRNG) is brute-forceable (CWE-330). *Deliverable:* sample tokens + a one-line attack estimate.
 
+![alt text](image-3.png)
+The token has only 10^6 possible values ​​and uses a PRNG unsuitable for security purposes, making it susceptible to guessing or brute-force attacks.
+
 **Task 4 — Hardcoded key (5 min)** · *Goal:* identify the key-management flaw. *Steps:* find `HARDCODED_KEY` in `vulnerable_crypto.py`; explain why shipping a key in source is CWE-798. *Deliverable:* the line + a 2-sentence mitigation.
+The problem is that anyone with access to the source code immediately obtains the encryption key. The solution is to load the key from an environment variable or a secret manager.
 
 **Task 5 — Crack the project target's hashes (25 min)** · *Goal:* apply cracking to your term project. *Steps:* **NoteVault** stores unsalted MD5 password hashes; obtain them (via the app's `/admin` once you can reach it, or from its `seed()`), and crack them with `hashcat -m 0`. *Deliverable:* the recovered password(s) + note the CWE — record this finding for your project report (`project/REPORT-TEMPLATE.md` in the repo root).
+![alt text](image-4.png)
+CWE-327/CWE-916 due to the use of unsalted MD5.
 
 **Task 6 — Password storage migration (25 min)** · *Goal:* fix it the way real apps do. *Steps:* write `store_password`/`verify_password` with **argon2id**, and a **rehash-on-login** path that upgrades a legacy MD5 record to argon2id the next time the user logs in. *Deliverable:* the code + a short note on why migration matters.
 
+from argon2 import PasswordHasher
+
+ph = PasswordHasher()
+
+def store_password(pw: str) -> str:
+    return ph.hash(pw)
+
+def verify_password(hash_: str, pw: str) -> bool:
+    try:
+        return ph.verify(hash_, pw)
+    except Exception:
+        return False
+
+Argon2id automatically generates a salt.
+        
+
 **Task 7 — Authenticated encryption round-trip (20 min)** · *Goal:* use AEAD correctly. *Steps:* encrypt+decrypt a message with **AES-GCM** using a random 12-byte nonce and a key from an env var; then flip one ciphertext byte and show decryption **fails** (tag check). *Deliverable:* the round-trip output + the tampered-fails proof.
+
+nonce, ciphertext, tag = encrypt_gcm(b"secret", key)
+print(decrypt_gcm(nonce, ciphertext, tag, key))
+
+tampered = bytearray(ciphertext)
+tampered[0] ^= 1
+
+try:
+    decrypt_gcm(nonce, bytes(tampered), tag, key)
+    print("ERROR: tampering accepted")
+except ValueError:
+    print("tampering rejected")
+
+b'secret'
+tampering rejected
 
 **Task 8 — TLS in practice (15 min)** · *Goal:* read a real cert. *Steps:* run `openssl s_client -connect example.com:443 </dev/null 2>/dev/null | tee /tmp/tls.txt | openssl x509 -noout -issuer -subject -dates` for the cert summary, then `grep -E 'Protocol|New,' /tmp/tls.txt` for the negotiated TLS version (the version line is printed by `s_client`, not by `x509`, so the plain pipe would discard it); identify issuer, validity, and that TLS version. *Deliverable:* the cert summary + one line on what TLS protects that hashing/at-rest encryption does not.
 
+Notes:
+Issuer,
+Subject,
+Start and expiration dates,
+TLS version,
+,TLS protects data in transit, whereas hashing is used for verification/integrity checks, and encryption-at-rest protects stored data.
+
 **Task 9 — Defend / fix it (20 min)** · *Goal:* remediate using `solution_skeleton.py`. *Steps:* run `python solution_skeleton.py`; confirm `store_password`/`verify_password` use argon2id (auto-salted), `encrypt_gcm` uses a random 12-byte nonce + auth tag with a key from `ENC_KEY_HEX` env, and `reset_token` uses `secrets`. Map each fix to the CWE it closes. *Deliverable:* before/after table (misuse → fix → CWE closed) + screenshot of the fixed script running.
+
+![alt text](image-5.png)
 
 ## Part 4 — Reflection
 1. Map each of the four misuses to its CWE and to OWASP A04, in one line each.
+
+Weak Password Hashing (e.g., MD5/SHA-1): Maps to CWE-916 (Insufficient Computational Effort) and OWASP A04:2025 (Cryptographic Failures) because fast, unsalted algorithms allow rapid offline cracking.
+
+Hardcoded Cryptographic Keys: Maps to CWE-798 (Hard-coded Credentials) and OWASP A04:2025 because embedding secrets in source code completely compromises the encryption's root of trust.
+
+Insecure Block Cipher Mode (ECB): Maps to CWE-327 (Broken/Risky Crypto Algorithm) and OWASP A04:2025 because deterministic encryption fails to hide data patterns, breaking confidentiality.
+
+Predictable Randomness (Weak PRNG/IVs): Maps to CWE-330 (Insufficiently Random Values) and OWASP A04:2025 because standard math functions allow attackers to predict keys or initialization vectors.
+
 2. Name a real-world breach caused by weak password hashing or hardcoded keys, and which fix here would have prevented it.
+
+Breach: LinkedIn (2012)
+
+Root Cause: Weak password hashing. LinkedIn stored user passwords as unsalted SHA-1 hashes, which are incredibly fast to compute.
+
+The Fix: Applying the bcrypt/Argon2 hashing fix (which includes a unique salt and a slow computational work factor) would have rendered the stolen database largely useless, protecting the passwords from the rapid rainbow table and brute-force attacks that cracked millions of accounts within days.
+
 3. Across all four fixes, which closes the largest real-world risk, and why?
+
+Removing the hardcoded cryptographic key closes the largest real-world risk.
+
+While weak algorithms (like ECB mode or SHA-1) require an attacker to capture ciphertext and expend at least some computational effort to crack hashes or analyze patterns, a hardcoded key represents a complete bypass of the cryptographic system. If an attacker views a leaked commit, reverse-engineers a mobile binary, or accesses the repository, they instantly obtain the exact key needed to decrypt all data in plaintext—requiring zero cryptographic skill or cracking time.
 
 ## Grading rubric (100)
 | Criterion | Points |
