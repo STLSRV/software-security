@@ -10,7 +10,7 @@
 
 | Name | Student ID | Date | Group |
 |------|-----------|------|-------|
-|      |           |      |       |
+|Siravit Thakaew|6631503041|10/10/2569|       |
 
 ## Part 2 — Lecture Questions
 
