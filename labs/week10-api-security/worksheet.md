@@ -15,10 +15,103 @@
 ## Part 2 — Lecture Questions
 
 1. Define **BOLA (API1:2023)**. Why is it the #1 API risk, and why can't a WAF reliably stop it?
+
+BOLA (Broken Object Level Authorization) is a vulnerability that occurs when an API fails to adequately verify whether a user has the authorization to access a requested object. For example, a logged-in user named Alice might be able to change a URL from:
+/api/users/1/orders to /api/users/3/orders
+...and then read Carol’s order.
+
+BOLA is the number one risk because APIs often expose various object IDs—such as `user_id`, `order_id`, or `document_id`—and many endpoints require reading or modifying this data. If object-level authorization checks are missing, an attacker could potentially access a large volume of data belonging to other users.
+
+A WAF cannot reliably stop BOLA, as malicious requests often resemble legitimate ones—for example:
+
+GET /api/users/3/orders HTTP/1.1
+
+The request consists of valid HTTP and JSON, containing no SQL injection or payload patterns that a WAF would detect. The determination of whether the caller has permission to access user ID 3 must be handled within the application by verifying both the identity of the caller and their ownership of the object in every instance.
+
 2. What is **mass assignment / broken object property level authorization (API3:2023)**? Contrast a blocklist vs. an allow-list of bindable fields.
+
+Mass assignment means the server takes all fields from the request body and places them into an object or database, without restricting which fields the user can control.
+
+For example, the client sends:
+
+{
+  "username": "mallory",
+  "password": "x",
+  "is_admin": true,
+  "balance": 1000000
+}
+
+If a server binds all fields directly, users can manually set values ​​for fields like `is_admin` or `balance`, potentially leading to unauthorized privilege escalation or the modification of sensitive data.
+
+A "blocklist" approach involves accepting all fields by default while explicitly excluding specific, sensitive ones—for example:
+
+blocked = {"is_admin", "balance"}
+
+This method carries risks; if new sensitive fields—such as `role`, `credit_limit`, or `verified`—are added in the future and one forgets to include them in the blocklist, those fields could become vulnerable to exploitation.
+
+An "allow-list" approach, by contrast, explicitly defines which fields a client is permitted to submit—for example:
+
+ALLOWED_CREATE_FIELDS = {"username", "password"}
+
+In this case, the server only accepts fields included in the list, while sensitive fields like `id`, `balance`, and `is_admin` are managed exclusively by the server. The allow-list approach is more secure, as any newly added fields are not automatically exposed to client-side control.
+
 3. **API4:2023** is unrestricted resource consumption. Give two distinct impacts (security and availability) of an unthrottled `/api/login`.
+
+API4 refers to a vulnerability where an API allows users or attackers to consume resources without restriction—for example, by making repeated login requests without any limit on the number of attempts.
+
+Key impacts include:
+
+1.Brute-force or credential stuffing:
+Attackers can test a large number of passwords against a specific account (e.g., Alice’s). If they discover the correct password, they can take over the account. The absence of rate limiting makes such attacks both rapid and low-cost.
+
+2.Impact on availability (service disruption or slowdown):
+Sending a high volume of requests forces the server to consume excessive CPU, memory, database connections, and network bandwidth. This can degrade service for legitimate users or even lead to a Denial of Service (DoS).
+
+Furthermore, this can result in higher costs, particularly if the API performs resource-intensive operations or utilizes services that charge on a per-request basis.
+
 4. In `vulnerable_api.py`, `current_user()` trusts the `X-User-Id` header. Why is a client-supplied header NOT authentication, and what should replace it?
+
+The `X-User-Id` header sent by a client does not constitute authentication, as clients can define or modify headers at will—for example, changing this:
+
+X-User-Id: 1
+
+to this:
+
+X-User-Id: 3
+
+If a server trusts such a value without verifying that the sender truly owns the identity, an attacker could easily impersonate another user or an administrator. Consequently, this header is merely a claim made by the client, not valid proof of identity.
+
+In a production environment, you should employ authentication mechanisms that the server can independently verify, such as:
+
+Session cookies that are randomly generated and tracked on the server side.
+
+OAuth 2.0 / OpenID Connect.
+
+Access tokens or JWTs that carry a valid signature and include verified claims (such as `iss`, `aud`, and `exp`), along with relevant permissions.
+
+mTLS (mutual TLS) for service-to-service communication, where applicable.
+
+Furthermore, even after authentication has confirmed that the user is, for instance, "Alice," you must still perform object-level authorization checks. For example, Alice might have permission to access `/api/users/1/orders` but lack the authorization to access `/api/users/3/orders`.
+
 5. Why does object-level authorization have to be checked **per request, per object** rather than once at login?
+
+Logging in merely confirms the identity of the caller; it does not imply that the caller has permission to access every object in the system.
+
+A single user may have varying levels of access depending on factors such as:
+
+The specific object being requested
+The owner of the data
+The user’s assigned role
+The tenant or organization
+The status of the resource
+Changes in permissions during a session
+
+For example, Alice might have permission to view her own orders, but not those belonging to Bob or Carol. Therefore, every request must verify the relationship between the caller and the requested object.
+
+if caller["id"] != uid and not caller["is_admin"]:
+    return jsonify({"error": "forbidden"}), 403
+
+Checking identity only at the time of login confirms that "this is Alice," but it does not answer whether "Alice has permission to access this object." Consequently, authorization must be re-verified every time an individual object is accessed, modified, or deleted.
 
 ## Part 3 — Hands-on Lab (145 min)
 
