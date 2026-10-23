@@ -131,6 +131,8 @@ docker compose up         # INSECURE API on :8080, SECURE API on :8081
 ### Task 0 — Onboarding (15 min)
 Confirm both APIs respond: `curl http://localhost:8080/` and `curl http://localhost:8081/`. Note which port is insecure. Record the three seeded users.
 **Deliverable:** both root responses + the user table.
+![alt text](image.png)
+![alt text](image-1.png)
 
 ![One REST API with three flaws — reading another user's orders by id, smuggling an admin field into user creation, and an unthrottled login — each shown at the handler where it occurs, next to its one-line fix.](img/api-flaws.svg)
 
@@ -142,6 +144,11 @@ Confirm both APIs respond: `curl http://localhost:8080/` and `curl http://localh
 3. On the secure API observe the ladder: `curl -i http://localhost:8081/api/users/3/orders` (401), `curl -i -H "X-User-Id: 1" http://localhost:8081/api/users/3/orders` (403), `curl -i -H "X-User-Id: 1" http://localhost:8081/api/users/1/orders` (200).
 **Deliverable:** the leaked order JSON + the 401/403/200 transcript + mitigation note.
 
+![alt text](image-2.png)
+![alt text](image-3.png)
+
+The insecure endpoint is vulnerable to API1:2023 BOLA because it trusts the user ID in the URL and returns that user's orders without checking whether the caller owns the object. An attacker can change the ID from 1 to 3 and read another user's data. The secure implementation first requires an authenticated caller and then checks whether caller["id"] == uid, unless the caller is an administrator; otherwise it returns 403 Forbidden.
+
 ### Task 2 — Mass assignment: self-promote to admin (30 min)
 **Goal:** Smuggle `is_admin` + `balance` into user creation — API3:2023.
 **Steps:**
@@ -149,6 +156,10 @@ Confirm both APIs respond: `curl http://localhost:8080/` and `curl http://localh
 2. Confirm the response echoes `"is_admin": true, "balance": 1000000`.
 3. Repeat against `:8081` and confirm the smuggled fields are forced to `is_admin:false, balance:0`.
 **Deliverable:** both responses side by side + mitigation note (allow-list in `solution_api.py`).
+
+![alt text](image-4.png)
+
+The API on port 8080 contains an API3:2023 vulnerability because it directly maps all fields from the client-submitted JSON body into the user object, allowing the client to arbitrarily set values ​​for `is_admin` and `balance`. In contrast, the API on port 8081 employs an allow-list that accepts only the `username` and `password` fields, while the server itself assigns the `id`, `balance`, and `is_admin` values—resulting in `is_admin: false` and `balance: 0`.
 
 ### Task 3 — Unrestricted resource consumption: brute-force login (25 min)
 **Goal:** Show `/api/login` has no throttle — API4:2023.
@@ -158,14 +169,68 @@ Confirm both APIs respond: `curl http://localhost:8080/` and `curl http://localh
 3. Confirm the 6th/7th attempt returns `429`.
 **Deliverable:** the `401 401 401 401 401 429 429` sequence + mitigation note.
 
+![alt text](image-5.png)
+![alt text](image-6.png)
+
+The insecure login endpoint is vulnerable to API4:2023 because it processes unlimited password guesses without throttling. This enables brute-force or credential-stuffing attacks and can consume server resources. The secure implementation applies a per-IP rate limit of five attempts per 60 seconds and returns HTTP 429 after the limit is exceeded.
+
+
 ### Task 4 — Bonus: crAPI Raid (optional, 20 min)
 Against your own OWASP crAPI instance (`git clone https://github.com/OWASP/crAPI.git`), capture one BOLA or mass-assignment flag.
 **Deliverable:** flag + endpoint + which API Top 10 id it maps to.
+
+[{"item":"Server rack","order_id":"C-1","total":5000},{"item":"FLAG{bola_demo}","order_id":"C-FLAG","total":0}]
+Endpoint: GET /community/api/v2/community/posts/recent?limit=30&offset=0
+Full URL: 
+http://localhost:8888/community/api/v2/community/posts/recent?limit=30&offset=0
+Status: 200 OK
+
+![alt text](image-10.png)
+![alt text](image-8.png)
+![alt text](image-7.png)
+![alt text](image-9.png)
 
 ### Task 5 — Defend / fix it (20 min)
 **Goal:** Explain the fixes using the secure reference `solution_api.py`.
 **Steps:** Read the three `# --- FIX ...` blocks. For each, quote the line(s) that defeat your Task 1–3 exploit: the per-object ownership check (`caller["id"] != uid and not caller["is_admin"]`), `ALLOWED_CREATE_FIELDS` binding, and the `RATE_LIMIT=5 / RATE_WINDOW=60` limiter.
 **Deliverable:** for each of API1/API3/API4 — the exploit that worked on `:8080`, the line in `solution_api.py` that blocks it, and the new HTTP status on `:8081`.
+
+| OWASP ID | Exploit ที่ทำกับ :8080 | จุดแก้ไขใน solution_api.py | ผลบน :8081 |
+|------|-----------|------|-------|
+|API1:2023 BOLA|ขอ /api/users/3/orders โดยไม่มีสิทธิ์ หรือให้ Alice ขอข้อมูลของ Carol|ตรวจ caller is None และ caller["id"] != uid and not caller["is_admin"]|ไม่มี identity ได้ 401; Alice ขอของ Carol ได้ 403; Alice ขอของตัวเองได้ 200|
+|API3:2023 Broken Object Property Level Authorization|ส่ง is_admin:true และ balance:1000000 ตอนสร้าง user|ใช้ ALLOWED_CREATE_FIELDS = {"username", "password"} และ server ตั้งค่า sensitive fields เอง|ได้ 201, แต่ is_admin:false, balance:0|
+|API4:2023 Unrestricted Resource Consumption|ยิง /api/login ซ้ำได้ไม่จำกัด|ใช้ RATE_LIMIT = 5, RATE_WINDOW = 60 และ rate_limited(...)|5 ครั้งแรกได้ 401; ครั้งที่ 6 เป็นต้นไปได้ 429|
+
+1. API1 — BOLA
+จุดแก้ไขใน solution_api.py:
+caller = current_user()
+
+if caller is None:
+    return jsonify({"error": "authentication required"}), 401
+
+if caller["id"] != uid and not caller["is_admin"]:
+    return jsonify({"error": "forbidden"}), 403
+
+2. API3 — Mass Assignment
+จุดแก้ไข:
+ALLOWED_CREATE_FIELDS = {"username", "password"}
+และ:
+user = {k: body[k] for k in ALLOWED_CREATE_FIELDS if k in body}
+
+user.update({
+    "id": _next_id,
+    "balance": 0,
+    "is_admin": False
+})
+
+3. API4 — Unrestricted Resource Consumption
+RATE_LIMIT = 5
+RATE_WINDOW = 60
+และ:
+if rate_limited(request.remote_addr or "unknown"):
+    return jsonify({"error": "too many requests"}), 429
+
+The secure reference applies three different controls for three different failure modes. API1 requires authentication and checks object ownership on every request; API3 uses an allow-list so clients can submit only safe fields; and API4 limits login attempts per IP. These controls stop the demonstrated exploits, but a production system should also use verified authentication tokens instead of trusting the lab-only X-User-Id header, distributed rate limiting, audit logging, and tests for authorization on every endpoint.
 
 ## Part 4 — Reflection
 
