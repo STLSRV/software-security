@@ -10,15 +10,54 @@
 
 | Name | Student ID | Date | Group |
 |------|-----------|------|-------|
-|      |           |      |       |
+|Siravit Thakaew |6631503041|24/10/2569|       |
 
 ## Part 2 — Lecture Questions
 
 1. Explain **dependency confusion** (substitution). Why does a public `acme-internal-utils==99.0.0` win over a private `==1.4.0` when a resolver shops both indexes?
+
+Dependency confusion is a supply-chain attack in which an attacker publishes a malicious package to a public registry using the same name as an organization’s private package. If the package resolver searches both the private and public indexes and chooses the highest version number, the public package acme-internal-utils==99.0.0 wins over the legitimate private version ==1.4.0.
+
+The resolver generally compares package names and version numbers rather than understanding which package is trustworthy. As a result, it may download the attacker-controlled public package instead of the internal package.
+
 2. How does **typosquatting** (`reqeusts`, `urlib3`) achieve code execution *at install time* before any of your code runs?
+
+Typosquatting uses a package name that is visually similar to a popular package, such as reqeusts instead of requests or urlib3 instead of urllib3. A developer may accidentally install the malicious package because of a typing mistake or an incorrect dependency declaration.
+
+The malicious package can execute code during installation through packaging lifecycle hooks such as setup.py, build.py, or other build/install scripts. This code runs during the package installation process, before the application itself starts and before the developer’s code executes. It could download additional malware, steal environment variables and credentials, modify files, or create a persistence mechanism.
+
 3. What is an **SBOM** (CycloneDX/SPDX) and why is it a prerequisite for both incident response and SLSA provenance?
+
+An SBOM, or Software Bill of Materials, is a machine-readable inventory of the components, libraries, packages, versions, and sometimes licenses used to build a software product. Common SBOM formats include CycloneDX and SPDX.
+
+An SBOM is important for incident response because it allows an organization to quickly determine whether an affected package or vulnerable version exists in its applications, containers, and deployment environments. Without an SBOM, responders must manually search through build files and deployed systems.
+
+An SBOM is also a prerequisite for effective SLSA provenance because provenance explains how an artifact was produced, while the SBOM identifies what went into it. Together, they provide traceability from source code and dependencies to the final build artifact and support vulnerability analysis and compliance verification.
+
 4. Sigstore **keyless** signing uses Fulcio (CA) + Rekor (transparency log) tied to an OIDC identity. Why is that safer than a long-lived private key (CWE-321)?
+
+Sigstore keyless signing uses an OIDC identity to authenticate the signer. Fulcio issues a short-lived signing certificate associated with that identity, and Rekor records the signing event in a tamper-evident transparency log.
+
+This is safer than storing a long-lived private key because there is no permanent secret key that must be manually created, copied, and protected for years. If a short-lived credential is compromised, its lifetime and usefulness are limited. The OIDC identity also provides accountability by recording which user, CI workflow, or organization performed the signing operation.
+
+Rekor makes the signing event publicly auditable and helps detect unauthorized or unexpected signatures. However, keyless signing is not a complete defense by itself: the OIDC account and CI workflow must still be secured, and the deployment system must verify both the signature and the expected identity.
+
 5. Summarize the **SLSA** levels. Which level does "signed artifact + SBOM + provenance gate before deploy" put you at, and what is still missing?
+
+SLSA, or Supply-chain Levels for Software Artifacts, is a framework for improving the security and integrity of the software build process.
+
+SLSA Build Level 1 — Documentation of the build process:
+The project provides basic information about how the artifact was built and generates provenance. The information may not yet be strongly authenticated or tamper-resistant.
+
+SLSA Build Level 2 — Hosted build and authenticated provenance:
+The artifact is produced by a controlled, hosted build service, and the provenance is authenticated. This makes it possible to verify where and how the artifact was built.
+
+SLSA Build Level 3 — Hardened build platform:
+The build platform provides stronger isolation and protection against tampering. The build process has stricter guarantees, such as preventing unauthorized changes to the source, build steps, or generated provenance.
+
+A pipeline with a signed artifact, an SBOM, and a provenance gate before deployment has the essential verification controls associated with SLSA Build Level 2, assuming the provenance is generated and authenticated by a trusted hosted build service. However, these controls alone do not automatically prove full SLSA compliance.
+
+What is still missing for a stronger Level 3 posture includes a hardened and isolated build environment, stronger protection of the build process, trusted source-to-artifact traceability, and appropriate controls against tampering or unauthorized changes during the build. A signed artifact and SBOM improve verification, but they do not guarantee that the build itself was secure.
 
 ![Six hops a dependency crosses from a public registry into production, each with its own attack and the control that answers it.](img/supply-chain.svg)
 
@@ -42,12 +81,45 @@ bash sign.sh week12-supplychain:lab   # CycloneDX SBOM -> sbom.cdx.json, then co
 Read `requirements.txt` and list the pinned packages with their versions. Note why they are intentionally outdated (each is deliberately an old release so SCA tools flag its known CVEs).
 **Deliverable:** the package/version table + which OWASP/CWE this maps to.
 
+| Package | Pinned version | Reason it is included |
+|------|-----------|------|
+|Flask |1.1.4|Old pre-2.x release|
+|Werkzeug |1.0.1|Old pre-2.x release|
+|Jinja2 |2.11.3|Old templating dependency|
+|MarkupSafe |2.0.1|Pinned for Jinja2 2.11 compatibility|
+|itsdangerous |1.1.0|Old Flask dependency|
+|click |7.1.2|Old Flask dependency|
+|requests |2.25.1|Outdated HTTP client|
+|urllib3 |1.26.4|Contains known vulnerabilities, including CVE-2021-33503|
+|PyYAML |5.4.1|Old YAML parser release|
+
+These versions are intentionally outdated so that software composition analysis tools can identify known vulnerabilities and produce a remediation worklist.
+
+Security mapping
+This task maps to:
+
+OWASP A03 — Software Supply Chain Failures
+CWE-1104 — Use of Unmaintained Third-Party Components
+CWE-1395 — Dependency on Vulnerable Third-Party Component
+The main risk is that vulnerable or unsupported dependencies become part of the application and may expose the application even when its own source code is secure.
+
 ### Task 1 — SCA scan: build the remediation worklist (35 min)
 **Goal:** Flag the known-vulnerable dependencies — A03.
 **Steps:**
 1. `bash sca_scan.sh` — read the `trivy fs` table (CVE, installed vs. fixed version) and the `pip-audit` advisory IDs (GHSA-/PYSEC-).
 2. Pick three findings; record CVE/advisory id, severity, and the fixed version.
 **Deliverable:** the SCA output + a 3-row remediation table (package → current → fixed).
+
+| Package | Installed version | Advisory | Severity | Fixed versi |
+|------|-----------|------|-------|-------|
+|urllib3 |1.26.4|CVE-2021-33503|High|1.26.5 or later|
+|requests |2.25.1|CVE-2023-32681|Moderate|2.31.0 or later|
+|Jinja2 |2.11.3|CVE-2020-28493 / ReDoS advisory|High|3.0.3 or later|
+
+The precise fixed version should be copied from the Fixed Version column printed by the local Trivy/pip-audit database.
+
+Remediation note
+The outdated dependencies represent OWASP A03 and CWE-1104/CWE-1395 because the application relies on old third-party components with known vulnerabilities. The remediation is to upgrade each package to a supported patched version, regenerate the lockfile or hashes, rerun SCA, and prevent vulnerable versions from entering future builds through CI gates.
 
 ### Task 2 — Dependency Confusion Heist (35 min)
 **Goal:** Watch the wrong package win — A03 / CWE-1357.
@@ -75,6 +147,24 @@ resolver-confusion
 same version pair, plus one sentence on why an attacker defeats the "keep my internal version number high"
 idea.
 
+![alt text](image.png)
+![alt text](image-1.png)
+![alt text](image-2.png)
+
+In merged mode using --extra-index-url, the resolver installs
+acme-internal-utils==99.0.0 from the public index. It compares packages
+from both indexes and selects the highest version, so the attacker’s public
+package wins over the legitimate private version 1.4.0. This demonstrates
+dependency confusion.
+
+In single-index mode using --index-url, the resolver installs
+acme-internal-utils==1.4.0 from the private index. The public index is not
+queried, so the public 99.0.0 package cannot be selected.
+
+Keeping the internal package version higher is not a reliable defense because
+an attacker can publish an even higher public version. A single trusted index,
+package namespace protection, and required hashes provide stronger protection.
+
 ### Task 3 — SBOM + signing/verification (30 min)
 **Goal:** Produce a component inventory and prove integrity — A08.
 **Steps:**
@@ -86,6 +176,18 @@ idea.
    them cosign stops at `Error: --certificate-identity or --certificate-identity-regexp is required` — a usage
    error, which is *not* the same thing as proving the image is unsigned.)
 **Deliverable:** the SBOM Flask component entry + the verify PASS + the negative-test failure.
+
+Select-String -Path sbom.cdx.json -Pattern '"name": "Flask"'
+
+Verification for week12-supplychain:lab --
+The following checks were performed:
+- The image signature is valid.
+- The certificate identity matches the configured identity pattern.
+- The certificate issuer matches the configured issuer pattern.
+
+PASS
+
+the negative-test failure. =Error: no signatures found
 
 ### Task 4 — Defend / fix it (35 min)
 **Goal:** Stop dependency confusion and lock integrity — defenses from `dependency-confusion.md` + `sign.sh`.
@@ -99,6 +201,23 @@ idea.
 3. **Namespace scoping:** describe reserving/namespacing the internal package name.
 4. **Provenance gate:** state how the `cosign verify` from `sign.sh` becomes a gate before a simulated deploy.
 **Deliverable:** the `--require-hashes` refusal output (step 1) + the simulation's before/after verdict for merged vs. single index (from Task 2) + the one defense you found most effective and why.
+
+Before defense
+Mode: merged / --extra-index-url
+Private version: acme-internal-utils==1.4.0
+Public version:  acme-internal-utils==99.0.0
+Result: public 99.0.0 wins
+Risk: dependency confusion
+
+After defense
+Mode: single / --index-url
+Trusted version: acme-internal-utils==1.4.0
+Public version:   not queried
+Result: private 1.4.0 is selected
+Risk: public substitution is blocked
+
+Most effective defense
+The most effective immediate defense is a single trusted package index combined with pinned versions and cryptographic hashes. The single index prevents the resolver from shopping across untrusted sources, while hashes ensure that even a package downloaded from the trusted source must match the approved artifact. In addition, namespace scoping and signed provenance provide defense in depth against package-name collisions and tampered build artifacts.
 
 ## Part 4 — Reflection
 
