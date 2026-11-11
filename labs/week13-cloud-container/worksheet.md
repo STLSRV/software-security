@@ -12,7 +12,7 @@
 
 | Name | Student ID | Date | Group |
 |------|-----------|------|-------|
-|      |           |      |       |
+|Siravit Thakaew|6631503041|11/11/2569|Tha-krit-ok|
 
 ---
 
@@ -21,10 +21,24 @@
 Answer in your own words (2–4 sentences each).
 
 1. Explain the **shared-responsibility model**. In `harden.md` it says "the cloud provider secures *of* the cloud; you secure what you put *in* it." Give one concrete example of each side for an S3-backed app.
+
+Cloud provider รับผิดชอบความปลอดภัย “of the cloud” เช่น ความปลอดภัยของศูนย์ข้อมูล ฮาร์ดแวร์ และระบบพื้นฐาน ส่วนผู้ใช้รับผิดชอบสิ่งที่นำไปวาง “in the cloud” เช่น IAM, bucket permission และข้อมูลใน S3 สำหรับ S3-backed app ผู้ให้บริการดูแลระบบ S3 ส่วนเราต้องตั้ง bucket ให้ private และจำกัดสิทธิ์ IAM
+
 2. `iam-policy-insecure.json` uses `"Action": "*"` and `"Resource": "*"`. Describe **why this violates least privilege** and map it to CWE-732 vs CWE-269 — what is the difference between the two CWEs here?
+
+Policy นี้อนุญาตให้ทำได้ทุก action กับทุก resource จึงขัดกับหลัก least privilege เพราะบัญชีมีสิทธิ์เกินกว่างานที่จำเป็น CWE-269 คือการจัดการ privilege ไม่เหมาะสม เช่น ให้สิทธิ์ระดับ admin โดยไม่จำเป็น ส่วน CWE-732 คือการกำหนด permission ให้ resource กว้างหรือผิด เช่น Resource: "*"
+
 3. The insecure Dockerfile bakes `ENV API_TOKEN=sk_live_...`. Explain how an attacker recovers that secret from a shipped image (name the `docker` commands) and why this is **CWE-526 / CWE-798 / CWE-200**.
+
+ผู้โจมตีที่ได้ image สามารถใช้ docker history --no-trunc <image> เพื่อดูคำสั่งและค่า ENV หรือใช้ docker inspect <image> เพื่อดู environment variables ได้ Secret จึงถูกเปิดเผยใน image และอาจถูกคัดลอกต่อไปเรื่อย ๆ ซึ่งเกี่ยวข้องกับ CWE-526, CWE-798 และ CWE-200 ควร inject secret ตอน runtime ผ่าน secrets manager หรือ mounted secret
+
 4. Why is `FROM python:latest` (CWE-1104/CWE-16) a security and reproducibility problem, and how does pinning to an `@sha256:` digest fix it?
+
+Tag latest เปลี่ยนได้ตลอด ทำให้ build แต่ละครั้งอาจได้โค้ดและช่องโหว่ไม่เหมือนกัน อีกทั้งอาจดึงเวอร์ชันที่ไม่ผ่านการทดสอบ การ pin ด้วย @sha256:<digest> ทำให้ใช้ image เดิมที่ตรวจสอบย้อนกลับได้ เพิ่มทั้งความปลอดภัยและ reproducibility
+
 5. What does a **distroless** base image remove (relative to `python:3.11-slim`), and how does that shrink the attack surface for an RCE or container-escape attacker?
+
+Distroless มักไม่มี shell, package manager, utilities และไฟล์ระบบที่ไม่จำเป็น เมื่อเทียบกับ python:3.11-slim จึงมี component และ attack surface น้อยกว่า หากเกิด RCE ผู้โจมตีจะมีเครื่องมือให้ใช้ต่อยอดน้อยลง และการรันด้วย non-root ช่วยลดผลกระทบหาก container ถูกเจาะสำเร็จ
 
 ---
 
@@ -70,17 +84,40 @@ docker run --rm -v /var/run/docker.sock:/var/run/docker.sock aquasec/trivy:lates
 
 ### Tasks
 
-- **Task 0 — Onboarding (15 min, before class).** Confirm Docker works (`docker version`), run `bash scan.sh`, and record the **baseline finding count** against `Dockerfile.insecure` (Trivy's `config` scanner does not parse standalone IAM policy JSON, so `iam-policy-insecure.json` is reviewed manually instead — see Task 2). **Deliverable:** screenshot of the baseline scan.
+- **Task 0 — Onboarding (15 min, before class).** Confirm Docker works (`docker version`), run `bash scan.sh`, and record the **baseline finding count** against `Dockerfile.insecure` (Trivy's `config` scanner does not parse standalone IAM policy JSON, so `iam-policy-insecure.json` is reviewed manually instead — see Task 2). **Deliverable:** screenshot of the baseline scan.ฃ
+![alt text](image.png)
+![alt text](image-1.png)
+![alt text](image-2.png)
 
 - **Task 1 — Misconfig Hunt: container image (40 min, in class).** *Goal:* find every defect in `Dockerfile.insecure`. *Steps:* read each `# DEFECT:` comment, then locate the matching Trivy finding where one exists — only 3 of the 6 (unpinned `:latest`, runs as root, secrets in `ENV`) map to a Trivy config rule (`DS-0001`, `DS-0002`, `DS-0031`); `COPY . .`, `chmod -R 777`, and unpinned `pip install` are instruction-level RUN/COPY semantics Trivy's Dockerfile scanner doesn't check, so identify those 3 by code review instead. Build a table: defect → CWE → Trivy rule/severity (write "manual review — no Trivy rule" where none exists). *Deliverable:* completed table (6 rows) using the IDs from `harden.md`.
 
 - **Task 2 — Misconfig Hunt: IAM (30 min, in class).** *Goal:* document why `iam-policy-insecure.json` is full-admin. *Steps:* identify the `Action:*` / `Resource:*` / no-`Condition` problems; map to CWE-269 / CWE-732. *Deliverable:* 3-row table + one sentence on the blast radius if these creds leak.
 
+| Defect | CWE | Trivy rule / Severity | fix |
+|------|-----------|------|-------|
+|FROM python:latest uses a mutable tag.|CWE-1104, CWE-16|DS-0001 / Check the severity from the output|Pin using the version and SHA-256 digest|
+|Store API_TOKEN and AWS secret in ENV|CWE-526, CWE-798, CWE-200|DS-0031 / Check the severity from the output|Inject secrets at runtime|
+|COPY . . Copies the entire build context|CWE-538|Manual review — No Trivy rules in this lab|Copy only the necessary files and use them.|
+|chmod -R 777 /app|CWE-732|Manual review — No Trivy rules in this lab|Tha-krit-ok|
+|No USER is specified, causing the container to run as root.|CWE-250|DS-002 / Check Severity from the output|Use only the necessary permissions.|
+|Install dependencies without strict pinning/hashing|CWE-1104|Manual review — No Trivy rules in this lab|Pin package versions และ|
+
 - **Task 3 — Secrets & storage (25 min, homework).** *Goal:* show secrets must not live in the image. *Steps:* explain how `ENV API_TOKEN` / `AWS_SECRET_ACCESS_KEY` are exposed via `docker history --no-trunc week13-insecure:lab` (or `docker inspect`); propose where they belong instead (secrets manager / mounted secret / orchestrator secret per `harden.md`). *Deliverable:* 2–3 sentence remediation + the `.dockerignore` entries you would add to stop `COPY . .` leaking `.git`/`.env` (CWE-538).
+docker build -f Dockerfile.insecure -t week13-insecure:lab 
+docker history --no-trunc week13-insecure:lab
+docker inspect week13-insecure:lab
+![alt text](image-3.png)
+The API_TOKEN and AWS_SECRET_ACCESS_KEY values are baked into the Docker image through ENV instructions. Anyone who obtains the image can use docker history --no-trunc week13-insecure:lab or docker inspect week13-insecure:lab to recover the values. This creates information exposure and hard-coded credential risks under CWE-526, CWE-798, and CWE-200. Secrets should instead be injected at runtime using a cloud secrets manager, Docker/Kubernetes secrets, or a mounted secret file, and exposed credentials should be rotated.
 
 - **Task 4 — Hardened-Dockerfile + least-priv-IAM defense (50 min, in class).** *Goal:* prove the "after" is clean. *Steps:* (a) re-run `bash scan.sh` (or `trivy config`) against `Dockerfile.hardened` and capture the **reduced** finding count (Trivy's config scanner does not parse standalone IAM JSON, so confirm the IAM fix manually per Task 2 by diffing `iam-policy-leastpriv.json` against the insecure policy); (b) for the Dockerfile, point to the fix for each Task-1 defect (digest pin, multi-stage venv, distroless runtime, `USER 65532:65532`, no secrets in `ENV`, copy only `app.py`); (c) for IAM, confirm the rewrite scopes `s3:GetObject` to `arn:aws:s3:::lab-app-bucket/app/*` and adds the `s3:prefix` `Condition`; (d) list the extra runtime flags from `harden.md` (`--read-only`, `--cap-drop ALL`, `--security-opt no-new-privileges`). *Deliverable:* before/after finding counts, the defect→fix mapping, and the diffed policy/Dockerfile with one sentence per fix.
 
+The hardened Dockerfile reduced the Trivy configuration findings from the insecure baseline to 0 for the hardened file. It uses immutable image digests, a multi-stage build, a distroless runtime, a non-root user, no baked-in secrets, and copies only required files. The IAM policy also follows least privilege by limiting actions, resources, and the S3 prefix condition.
+
 - **Task 5 — Flag tally (20 min, homework).** *Goal:* score the hunt. *Steps:* one flag per misconfig found **and** fixed (6 container + 3 IAM = 9). *Deliverable:* flag count + the single biggest-risk misconfig and why.
+
+I earned 9 flags in total: 6 container misconfigurations and 3 IAM misconfigurations. The container issues were the mutable latest tag, secrets in ENV, COPY . ., world-writable permissions, running as root, and unpinned dependencies. The IAM issues were wildcard actions, wildcard resources, and the missing Condition.
+
+The biggest-risk misconfiguration was the IAM policy with "Action": "*" and "Resource": "*". If the credentials leaked, an attacker could access or modify almost every AWS resource. Restricting access to s3:GetObject, one bucket prefix, and an s3:prefix condition greatly reduces the blast radius.
 
 ---
 
